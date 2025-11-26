@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ES添削 & 模擬面接評価アプリ</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+      body {
+        background-color: #0f172a;
+      }
+      textarea::placeholder,
+      input::placeholder {
+        color: #9ca3af;
+      }
+    </style>
+  </head>
+  <body class="min-h-screen text-white">
+    <div class="max-w-5xl mx-auto px-4 py-10">
+      <header class="mb-8 text-center">
+        <p class="uppercase tracking-widest text-sm text-slate-300">
+          Strategic Talent Lab
+        </p>
+        <h1 class="text-3xl md:text-4xl font-bold">ES添削 & 模擬面接評価</h1>
+      </header>
+
+      <section class="bg-white/10 backdrop-blur rounded-2xl p-6 shadow-xl">
+        <form
+          id="es-form"
+          method="post"
+          class="space-y-6"
+        >
+          <div class="grid md:grid-cols-2 gap-6">
+            <label class="block text-sm font-semibold text-slate-200"
+              >志望企業名
+              <input
+                type="text"
+                name="company_name"
+                placeholder="例: 三菱商事, Google (空欄なら一般評価)"
+                class="mt-2 w-full rounded-xl border border-white/20 bg-white/10 p-3 text-white focus:border-blue-400 focus:ring-blue-400"
+                value="{{ request.form.company_name or '' }}"
+              />
+            </label>
+
+            <label class="block text-sm font-semibold text-slate-200"
+              >カテゴリ
+              <select
+                name="category"
+                class="mt-2 w-full rounded-xl border border-white/20 bg-white/10 p-3 text-white focus:border-blue-400 focus:ring-blue-400"
+              >
+                {% set selected_category = request.form.category or '志望動機' %}
+                {% for option in ['志望動機', 'ガクチカ', '自己PR', 'その他'] %}
+                <option
+                  value="{{ option }}"
+                  {% if option == selected_category %}selected{% endif %}
+                  class="text-slate-900"
+                >
+                  {{ option }}
+                </option>
+                {% endfor %}
+              </select>
+            </label>
+          </div>
+
+          <label class="block text-sm font-semibold text-slate-200"
+            >目標文字数
+            <input
+              type="number"
+              name="target_length"
+              placeholder="例: 400"
+              class="mt-2 w-full rounded-xl border border-white/20 bg-white/10 p-3 text-white focus:border-blue-400 focus:ring-blue-400"
+              value="{{ request.form.target_length or '' }}"
+            />
+          </label>
+
+          <label class="block text-sm font-semibold text-slate-200 relative"
+            >ES本文
+            <textarea
+              name="es_text"
+              rows="8"
+              placeholder="本気のESを入力してください。"
+              class="mt-2 w-full rounded-2xl border border-white/20 bg-white/10 p-4 pr-16 text-white focus:border-blue-400 focus:ring-blue-400"
+              oninput="updateCount(this)"
+            >{{ request.form.es_text or '' }}</textarea>
+            <span
+              id="char-count"
+              class="absolute bottom-3 right-4 text-xs text-slate-300"
+              >0文字</span
+            >
+          </label>
+
+          {% if result and result.error %}
+          <p class="text-red-300 bg-red-500/10 border border-red-500/40 rounded-xl p-4">
+            {{ result.error }}
+          </p>
+          {% endif %}
+
+          <button
+            type="submit"
+            id="submit-btn"
+            class="w-full flex items-center justify-center gap-2 rounded-2xl bg-blue-500 py-4 text-lg font-semibold text-white transition hover:bg-blue-600 active:scale-[0.99]"
+          >
+            <span>この内容で評価する</span>
+          </button>
+          <p
+            id="loading-indicator"
+            class="hidden text-center text-sm text-slate-300"
+          >
+            <span
+              class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent align-middle mr-2"
+            ></span>
+            面接官がESを熟読中...
+          </p>
+        </form>
+      </section>
+
+      <section class="mt-10 grid gap-6 md:grid-cols-2">
+        <div class="bg-white/10 rounded-2xl p-6 shadow-xl">
+          <h2 class="text-xl font-semibold mb-4">スコアレーダー</h2>
+          <canvas id="score-chart"></canvas>
+        </div>
+
+        <div class="bg-white/10 rounded-2xl p-6 shadow-xl space-y-4">
+          <h2 class="text-xl font-semibold">評価概要</h2>
+          {% if result and not result.error %}
+          <div class="grid gap-3">
+            <div class="rounded-xl border border-white/10 p-4">
+              <p class="text-sm text-slate-300">総合判定</p>
+              <p class="text-2xl font-bold text-white">
+                {{ result.result }} / {{ result.total_score }}点
+              </p>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-3">
+              <div class="rounded-xl border border-green-400/30 bg-green-400/10 p-4">
+                <p class="text-sm text-green-200">Good</p>
+                <ul class="text-sm text-slate-100 list-disc pl-4 mt-2">
+                  {% for point in result.good_points %}
+                  <li>{{ point }}</li>
+                  {% endfor %}
+                </ul>
+              </div>
+              <div class="rounded-xl border border-amber-400/30 bg-amber-400/10 p-4">
+                <p class="text-sm text-amber-200">Improve</p>
+                <ul class="text-sm text-slate-100 list-disc pl-4 mt-2">
+                  {% for point in result.bad_points %}
+                  <li>{{ point }}</li>
+                  {% endfor %}
+                </ul>
+              </div>
+            </div>
+
+            <div class="rounded-xl border border-white/10 p-4">
+              <p class="text-sm text-slate-300 mb-1">企業特化アドバイス</p>
+              <p class="text-sm text-white whitespace-pre-line">
+                {{ result.advice }}
+              </p>
+            </div>
+
+            <div class="rounded-xl border border-white/10 p-4">
+              <p class="text-sm text-slate-300 mb-2">想定質問</p>
+              <ul class="text-sm text-white list-decimal pl-5 space-y-1">
+                {% for q in result.questions %}
+                <li>{{ q }}</li>
+                {% endfor %}
+              </ul>
+            </div>
+          </div>
+          {% else %}
+          <p class="text-slate-300 text-sm">
+            まだ評価はありません。ESを送信すると結果がここに表示されます。
+          </p>
+          {% endif %}
+        </div>
+      </section>
+    </div>
+
+    <script>
+      const chartData = {{ chart_data | safe }};
+
+      const ctx = document.getElementById("score-chart");
+      if (ctx) {
+        new Chart(ctx, {
+          type: "radar",
+          data: {
+            labels: chartData.labels,
+            datasets: [
+              {
+                label: "あなたのスコア",
+                data: chartData.user,
+                backgroundColor: "rgba(248, 113, 113, 0.2)",
+                borderColor: "rgba(248, 113, 113, 1)",
+                borderWidth: 2,
+                pointBackgroundColor: "rgba(248, 113, 113, 1)",
+              },
+              {
+                label: "平均スコア",
+                data: chartData.average,
+                backgroundColor: "rgba(148, 163, 184, 0.2)",
+                borderColor: "rgba(148, 163, 184, 1)",
+                borderWidth: 2,
+                pointBackgroundColor: "rgba(148, 163, 184, 1)",
+              },
+            ],
+          },
+          options: {
+            scales: {
+              r: {
+                suggestedMin: 0,
+                suggestedMax: 20,
+                angleLines: { color: "rgba(148,163,184,0.2)" },
+                grid: { color: "rgba(148,163,184,0.2)" },
+                pointLabels: { color: "#cbd5f5", font: { size: 12 } },
+                ticks: {
+                  backdropColor: "transparent",
+                  color: "#94a3b8",
+                  stepSize: 5,
+                },
+              },
+            },
+            plugins: {
+              legend: {
+                labels: { color: "#e2e8f0" },
+              },
+            },
+          },
+        });
+      }
+
+      function updateCount(textarea) {
+        const count = textarea.value.length;
+        document.getElementById("char-count").textContent = `${count}文字`;
+      }
+      const esTextarea = document.querySelector('textarea[name="es_text"]');
+      if (esTextarea) {
+        updateCount(esTextarea);
+      }
+
+      const form = document.getElementById("es-form");
+      const submitBtn = document.getElementById("submit-btn");
+      const loader = document.getElementById("loading-indicator");
+
+      form?.addEventListener("submit", () => {
+        submitBtn.disabled = true;
+        submitBtn.classList.add("opacity-70", "cursor-not-allowed");
+        submitBtn.innerHTML = `
+          <span class="inline-block h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+          面接官がESを熟読中...
+        `;
+        loader.classList.remove("hidden");
+      });
+    </script>
+  </body>
+</html>
+
+
+

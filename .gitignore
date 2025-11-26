@@ -1,0 +1,5 @@
+.env
+.venv
+pycache
+*.pyc
+es_app.db
