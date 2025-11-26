@@ -2,6 +2,7 @@ import os
 import json
 import re
 from datetime import datetime, timezone
+from urllib.parse import quote_plus
 
 import psycopg2
 from flask import Flask, render_template, request
@@ -61,6 +62,7 @@ model = genai.GenerativeModel('gemini-2.5-pro')
 def index():
     result_data = None
     avg_data = get_average_scores()
+    share_url = None
 
     if request.method == 'POST':
         company_name = request.form.get('company_name', '')
@@ -170,6 +172,7 @@ def index():
                 # DBへの保存
                 save_result(company_name, category, result_data)
                 avg_data = get_average_scores()
+                share_url = build_share_url(result_data)
                 
             except Exception as e:
                 print(f"Error: {e}")
@@ -185,7 +188,16 @@ def index():
         "average": avg_data,
     }
 
-    return render_template('index.html', result=result_data, avg=avg_data, chart_data=json.dumps(chart_data, ensure_ascii=False))
+    if not share_url:
+        share_url = build_share_url(result_data)
+
+    return render_template(
+        'index.html',
+        result=result_data,
+        avg=avg_data,
+        chart_data=json.dumps(chart_data, ensure_ascii=False),
+        share_url=share_url,
+    )
 
 def save_result(company, category, data):
     try:
@@ -251,6 +263,21 @@ def get_average_scores():
     except Exception as exc:
         print(f"DB Average Error: {exc}")
         return [16, 15, 17, 15, 16]
+
+
+def build_share_url(result_data):
+    if not result_data or "total_score" not in result_data or "result" not in result_data:
+        return None
+
+    site_url = os.getenv("SITE_URL") or request.host_url.rstrip('/')
+    share_text = (
+        f"【ES添削】私のESスコアは{result_data.get('total_score', 0)}点でした！"
+        f"判定：{result_data.get('result')}（合格/不合格） #AI鬼面接官"
+    )
+    return "https://twitter.com/intent/tweet?text={text}&url={url}".format(
+        text=quote_plus(share_text),
+        url=quote_plus(site_url),
+    )
 
 if __name__ == '__main__':
     app.run(debug=True)
