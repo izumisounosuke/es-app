@@ -71,19 +71,28 @@ def index():
         es_text = request.form.get('es_text', '')
 
         if es_text:
-            # プロンプト（厳格な採点アルゴリズム）
+            # プロンプト（汎用対応版）
             prompt = f"""
             あなたは「厳格な採点アルゴリズム」です。感情を排除し、以下の基準に基づいて機械的にESを採点してください。
             同じ入力に対しては、常に同じ点数を出力する必要があります。
 
             【入力データ】
-            - 志望企業: {company_name if company_name else "指定なし"}
+            - 志望企業: {company_name if company_name else "指定なし（汎用的な提出として評価）"}
             - カテゴリ: {category}
             - ES本文: {es_text}
 
+            【重要：評価のスタンス（ここを厳守）】
+            1. **企業名が「指定なし」の場合:**
+               - 特定の企業への言及や、企業理念との適合度は**評価対象外**としてください。
+               - 「志望企業への言及がない」という理由での減点は**禁止**です。
+               - 「入社後の活躍」については、特定の企業ではなく「一般的なビジネスシーンでどう役立つか」という汎用的な再現性を評価してください。
+
+            2. **カテゴリが「ガクチカ」の場合:**
+               - これは「志望動機」ではありません。企業への熱意よりも、「課題解決能力」「行動特性」「人柄」を重視してください。
+               - 企業へのラブレターになっていないことを理由に減点しないでください。
+
             【採点アルゴリズム (各項目20点満点)】
             各項目について、**「基準点12点」**からスタートし、以下の要素に基づいて加点・減点を行ってください。
-            ※合計が20点を超えた場合は20点、0点未満の場合は0点とします。
 
             1. **論理性 (Logic)**
                - [基準] 12点: 話の筋道が通っている。
@@ -95,9 +104,11 @@ def index():
                - [加点] +4点: 固有名詞や数字（金額、人数、期間）がある。 +4点: 5W1Hが明確。
                - [減点] -4点: 抽象語（色々な、頑張った）が多い。 -4点: 状況描写不足。
 
-            3. **熱意 (Passion)**
-               - [基準] 12点: 志望動機として成立している。
-               - [加点] +4点: 企業独自の強み・理念（{company_name}）への言及。 +4点: 接点が明確。
+            3. **熱意・姿勢 (Passion/Attitude)**
+               - [基準] 12点: 取り組む姿勢が前向きである。
+               - [加点]
+                 - (企業名ありの場合) +4点: 企業独自の強みへの言及。 +4点: 接点が明確。
+                 - (企業名なし/ガクチカの場合) +4点: 自ら主体的に行動した事実がある。 +4点: 困難から逃げずに立ち向かった姿勢。
                - [減点] -5点: コピペ可能な内容。 -3点: 受け身の姿勢。
 
             4. **自己分析 (Insight)**
@@ -107,7 +118,9 @@ def index():
 
             5. **将来性 (Potential)**
                - [基準] 12点: 活躍イメージがある。
-               - [加点] +4点: 具体的なキャリアプラン。 +4点: カルチャーフィット。
+               - [加点]
+                 - (企業名ありの場合) +4点: その企業での具体的なキャリアプラン。
+                 - (企業名なし/ガクチカの場合) +4点: その強みが社会人として汎用的に活かせる（再現性がある）。
                - [減点] -4点: ビジネス視点の欠如。 -4点: 独りよがり。
 
             【出力手順】
@@ -130,15 +143,14 @@ def index():
             """
 
             try:
-                # 【重要変更1】トークン数を4倍に増やして「喋りすぎによる強制終了」を防ぐ
+                # 設定: トークン数確保と安全フィルター解除
                 generation_config = genai.types.GenerationConfig(
                     temperature=0.0,
                     top_k=1,
                     top_p=1.0,
-                    max_output_tokens=8192,  # 2048 -> 8192 に変更
+                    max_output_tokens=8192,
                 )
 
-                # 【重要変更2】安全フィルターを無効化（ESの内容での誤ブロックを防ぐ）
                 safety_settings = {
                     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
                     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -152,25 +164,52 @@ def index():
                     safety_settings=safety_settings
                 )
                 
-                # レスポンスが空でないか確認
                 if not response.parts:
-                    raise ValueError(f"AIからの応答が空でした。Finish Reason: {response.candidates[0].finish_reason}")
+                     raise ValueError(f"AI Response Empty. Finish Reason: {response.candidates[0].finish_reason}")
 
                 raw_text = response.text
                 
-                # --- JSON抽出ロジック ---
+                # JSON抽出
                 json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
-                
                 if not json_match:
-                     # デバッグ用にテキストの一部を表示
-                     print("Raw response text:", raw_text[:500])
-                     raise ValueError("JSONが見つかりませんでした")
+                     print("Raw response:", raw_text[:500])
+                     raise ValueError("JSON not found")
 
-                json_str = json_match.group(0)
-                result_data = json.loads(json_str)
+                result_data = json.loads(json_match.group(0))
                 
-                # DBへの保存
-                save_result(company_name, category, result_data)
+                # DB保存
+                scores = result_data.get('scores', [0]*5)
+                
+                with get_db_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            '''
+                            INSERT INTO results (
+                                timestamp,
+                                company_name,
+                                category,
+                                score_logic,
+                                score_specificity,
+                                score_passion,
+                                score_insight,
+                                score_potential,
+                                total_score
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            ''',
+                            (
+                                datetime.now(timezone.utc),
+                                company_name or None,
+                                category,
+                                scores[0],
+                                scores[1],
+                                scores[2],
+                                scores[3],
+                                scores[4],
+                                result_data.get('total_score', 0),
+                            )
+                        )
+                    conn.commit()
+                
                 avg_data = get_average_scores()
                 share_url = build_share_url(result_data)
                 
@@ -199,49 +238,22 @@ def index():
         share_url=share_url,
     )
 
-def save_result(company, category, data):
-    try:
-        scores = data.get('scores', [0]*5)
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    '''
-                    INSERT INTO results (
-                        timestamp,
-                        company_name,
-                        category,
-                        score_logic,
-                        score_specificity,
-                        score_passion,
-                        score_insight,
-                        score_potential,
-                        total_score
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ''',
-                    (
-                        datetime.now(timezone.utc),
-                        company or None,
-                        category,
-                        scores[0],
-                        scores[1],
-                        scores[2],
-                        scores[3],
-                        scores[4],
-                        data.get('total_score', 0),
-                    )
-                )
-            conn.commit()
-    except Exception as e:
-        print(f"DB Save Error: {e}")
-
 def get_average_scores():
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
+                # データの件数を確認
+                cur.execute('SELECT COUNT(*) FROM results')
+                count_row = cur.fetchone()
+                count = count_row[0] if count_row else 0
+                
+                # データが5件未満なら、計算せずに「仮想の合格者平均」を返す
+                if count < 5:
+                    return [16, 15, 17, 15, 16]
+                # 5件以上溜まったら、実際の平均を計算する
                 cur.execute(
                     '''
                     SELECT
-                        COUNT(*),
                         AVG(score_logic),
                         AVG(score_specificity),
                         AVG(score_passion),
@@ -251,12 +263,10 @@ def get_average_scores():
                     '''
                 )
                 row = cur.fetchone()
-
-        if row and row[0] and row[0] > 0:
-            # row[1:] may include Decimal values; convert safely
+        if row:
             averages = [
                 round(float(value), 1) if value is not None else 0.0
-                for value in row[1:]
+                for value in row
             ]
             return averages
         return [16, 15, 17, 15, 16]
