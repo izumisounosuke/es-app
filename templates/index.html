@@ -1,272 +1,355 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ja">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ES添削 & 模擬面接評価アプリ</title>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 鬼面接官 - ES評価ツール</title>
+    <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+    <!-- React & Babel CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.0/babel.min.js"></script>
     <style>
-      body {
-        background-color: #0f172a;
-      }
-      textarea::placeholder,
-      input::placeholder {
-        color: #9ca3af;
-      }
+      body { font-family: 'Inter', sans-serif; }
     </style>
-  </head>
-  <body class="min-h-screen text-white">
-    <div class="max-w-5xl mx-auto px-4 py-10">
-      <header class="mb-8 text-center">
-        <p class="uppercase tracking-widest text-sm text-slate-300">
-          Strategic Talent Lab
-        </p>
-        <h1 class="text-3xl md:text-4xl font-bold">ES添削 & 模擬面接評価</h1>
-      </header>
+</head>
+<body class="bg-gray-900">
+    <div id="root"></div>
 
-      <section class="bg-white/10 backdrop-blur rounded-2xl p-6 shadow-xl">
-        <form
-          id="es-form"
-          method="post"
-          class="space-y-6"
-        >
-          <div class="grid md:grid-cols-2 gap-6">
-            <label class="block text-sm font-semibold text-slate-200"
-              >志望企業名
-              <input
-                type="text"
-                name="company_name"
-                placeholder="例: 三菱商事, Google (空欄なら一般評価)"
-                class="mt-2 w-full rounded-xl border border-white/20 bg-white/10 p-3 text-white focus:border-blue-400 focus:ring-blue-400"
-                value="{{ request.form.company_name or '' }}"
-              />
-            </label>
+    <script type="text/babel">
+        // --- React App Component ---
+        const { useState, useEffect, useCallback, useRef } = React;
 
-            <label class="block text-sm font-semibold text-slate-200"
-              >カテゴリ
-              <select
-                name="category"
-                class="mt-2 w-full rounded-xl border border-white/20 bg-white/10 p-3 text-white focus:border-blue-400 focus:ring-blue-400"
-              >
-                {% set selected_category = request.form.category or '志望動機' %}
-                {% for option in ['志望動機', 'ガクチカ', '自己PR', 'その他'] %}
-                <option
-                  value="{{ option }}"
-                  {% if option == selected_category %}selected{% endif %}
-                  class="text-slate-900"
-                >
-                  {{ option }}
-                </option>
-                {% endfor %}
-              </select>
-            </label>
-          </div>
+        const App = () => {
+            const [companyName, setCompanyName] = useState('');
+            const [category, setCategory] = useState('志望動機');
+            const [targetLength, setTargetLength] = useState('');
+            const [esText, setEsText] = useState('');
+            const [currentLength, setCurrentLength] = useState(0);
+            const [result, setResult] = useState(null);
+            const [avgData, setAvgData] = useState([16, 15, 17, 15, 16]);
+            const [loading, setLoading] = useState(false);
+            const chartRef = useRef(null);
+            const chartInstance = useRef(null);
 
-          <label class="block text-sm font-semibold text-slate-200"
-            >目標文字数
-            <input
-              type="number"
-              name="target_length"
-              placeholder="例: 400"
-              class="mt-2 w-full rounded-xl border border-white/20 bg-white/10 p-3 text-white focus:border-blue-400 focus:ring-blue-400"
-              value="{{ request.form.target_length or '' }}"
-            />
-          </label>
+            // APIエンドポイント（相対パスで指定）
+            const API_URL = "/api/evaluate";
 
-          <label class="block text-sm font-semibold text-slate-200 relative"
-            >ES本文
-            <textarea
-              name="es_text"
-              rows="8"
-              placeholder="本気のESを入力してください。"
-              class="mt-2 w-full rounded-2xl border border-white/20 bg-white/10 p-4 pr-16 text-white focus:border-blue-400 focus:ring-blue-400"
-              oninput="updateCount(this)"
-            >{{ request.form.es_text or '' }}</textarea>
-            <span
-              id="char-count"
-              class="absolute bottom-3 right-4 text-xs text-slate-300"
-              >0文字</span
-            >
-          </label>
+            useEffect(() => {
+                setCurrentLength(esText.length);
+            }, [esText]);
+            
+            const renderChart = useCallback((userData, avgData) => {
+                if (!window.Chart || !chartRef.current) return; 
 
-          {% if result and result.error %}
-          <p class="text-red-300 bg-red-500/10 border border-red-500/40 rounded-xl p-4">
-            {{ result.error }}
-          </p>
-          {% endif %}
+                const ctx = chartRef.current.getContext('2d');
+                const labels = ["論理性", "具体性", "熱意", "自己分析", "将来性"];
+                const maxScore = 20;
 
-          <button
-            type="submit"
-            id="submit-btn"
-            class="w-full flex items-center justify-center gap-2 rounded-2xl bg-blue-500 py-4 text-lg font-semibold text-white transition hover:bg-blue-600 active:scale-[0.99]"
-          >
-            <span>この内容で評価する</span>
-          </button>
-          <p
-            id="loading-indicator"
-            class="hidden text-center text-sm text-slate-300"
-          >
-            <span
-              class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent align-middle mr-2"
-            ></span>
-            面接官がESを熟読中...
-          </p>
-        </form>
-      </section>
+                if (chartInstance.current) {
+                    chartInstance.current.destroy();
+                }
 
-      <section class="mt-10 grid gap-6 md:grid-cols-2">
-        <div class="bg-white/10 rounded-2xl p-6 shadow-xl">
-          <h2 class="text-xl font-semibold mb-4">スコアレーダー</h2>
-          <canvas id="score-chart"></canvas>
-        </div>
+                const data = {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'あなたのスコア',
+                            data: userData,
+                            backgroundColor: 'rgba(255, 99, 132, 0.4)',
+                            borderColor: 'rgba(255, 99, 132, 1)',
+                            pointBackgroundColor: 'rgba(255, 99, 132, 1)',
+                            borderWidth: 2,
+                        },
+                        {
+                            label: '平均スコア',
+                            data: avgData,
+                            backgroundColor: 'rgba(108, 117, 125, 0.2)',
+                            borderColor: 'rgba(108, 117, 125, 0.8)',
+                            pointBackgroundColor: 'rgba(108, 117, 125, 0.8)',
+                            borderWidth: 1,
+                        }
+                    ]
+                };
 
-        <div class="bg-white/10 rounded-2xl p-6 shadow-xl space-y-4">
-          <h2 class="text-xl font-semibold">評価概要</h2>
-          {% if result and not result.error %}
-          <div class="grid gap-3">
-            <div class="rounded-xl border border-white/10 p-4 flex flex-col gap-3">
-              <div>
-                <p class="text-sm text-slate-300">総合判定</p>
-                <p class="text-2xl font-bold text-white">
-                  {{ result.result }} / {{ result.total_score }}点
-                </p>
-              </div>
-              {% if share_url %}
-              <a
-                href="{{ share_url }}"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="inline-flex items-center justify-center gap-2 rounded-xl bg-black px-4 py-2 text-white font-semibold tracking-wide transition hover:bg-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-                aria-label="Xで結果をシェアする"
-              >
-                <span class="text-lg">𝕏</span>
-                <span>X (旧Twitter) でシェア</span>
-              </a>
-              {% endif %}
-            </div>
+                chartInstance.current = new window.Chart(ctx, {
+                    type: 'radar',
+                    data: data,
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            r: {
+                                angleLines: { color: 'rgba(255, 255, 255, 0.2)' },
+                                grid: { color: 'rgba(255, 255, 255, 0.2)' },
+                                pointLabels: { color: 'white', font: { size: 12 } },
+                                suggestedMin: 0,
+                                suggestedMax: maxScore,
+                                ticks: {
+                                    stepSize: 5,
+                                    color: 'rgba(255, 255, 255, 0.6)',
+                                    backdropColor: 'transparent', 
+                                    showLabelBackdrop: false,
+                                }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: { color: 'white' }
+                            },
+                        },
+                    },
+                });
+            }, []);
+            
+            useEffect(() => {
+                if (result && result.scores) {
+                    // チャート描画のタイミングを少し遅らせる（DOMレンダリング待ち）
+                    setTimeout(() => {
+                        renderChart(result.scores, avgData);
+                    }, 100);
+                }
+            }, [result, avgData, renderChart]);
 
-            <div class="grid md:grid-cols-2 gap-3">
-              <div class="rounded-xl border border-green-400/30 bg-green-400/10 p-4">
-                <p class="text-sm text-green-200">Good</p>
-                <ul class="text-sm text-slate-100 list-disc pl-4 mt-2">
-                  {% for point in result.good_points %}
-                  <li>{{ point }}</li>
-                  {% endfor %}
-                </ul>
-              </div>
-              <div class="rounded-xl border border-amber-400/30 bg-amber-400/10 p-4">
-                <p class="text-sm text-amber-200">Improve</p>
-                <ul class="text-sm text-slate-100 list-disc pl-4 mt-2">
-                  {% for point in result.bad_points %}
-                  <li>{{ point }}</li>
-                  {% endfor %}
-                </ul>
-              </div>
-            </div>
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                if (!esText.trim()) return;
 
-            <div class="rounded-xl border border-white/10 p-4">
-              <p class="text-sm text-slate-300 mb-1">企業特化アドバイス</p>
-              <p class="text-sm text-white whitespace-pre-line">
-                {{ result.advice }}
-              </p>
-            </div>
+                setLoading(true);
+                setResult(null);
 
-            <div class="rounded-xl border border-white/10 p-4">
-              <p class="text-sm text-slate-300 mb-2">想定質問</p>
-              <ul class="text-sm text-white list-decimal pl-5 space-y-1">
-                {% for q in result.questions %}
-                <li>{{ q }}</li>
-                {% endfor %}
-              </ul>
-            </div>
-          </div>
-          {% else %}
-          <p class="text-slate-300 text-sm">
-            まだ評価はありません。ESを送信すると結果がここに表示されます。
-          </p>
-          {% endif %}
-        </div>
-      </section>
-    </div>
+                const formData = new URLSearchParams();
+                formData.append('company_name', companyName);
+                formData.append('category', category);
+                formData.append('target_length', targetLength);
+                formData.append('es_text', esText);
 
-    <script>
-      const chartData = {{ chart_data | safe }};
+                try {
+                    const response = await fetch(API_URL, {
+                        method: 'POST',
+                        body: formData,
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                    });
 
-      const ctx = document.getElementById("score-chart");
-      if (ctx) {
-        new Chart(ctx, {
-          type: "radar",
-          data: {
-            labels: chartData.labels,
-            datasets: [
-              {
-                label: "あなたのスコア",
-                data: chartData.user,
-                backgroundColor: "rgba(248, 113, 113, 0.2)",
-                borderColor: "rgba(248, 113, 113, 1)",
-                borderWidth: 2,
-                pointBackgroundColor: "rgba(248, 113, 113, 1)",
-              },
-              {
-                label: "平均スコア",
-                data: chartData.average,
-                backgroundColor: "rgba(148, 163, 184, 0.2)",
-                borderColor: "rgba(148, 163, 184, 1)",
-                borderWidth: 2,
-                pointBackgroundColor: "rgba(148, 163, 184, 1)",
-              },
-            ],
-          },
-          options: {
-            scales: {
-              r: {
-                suggestedMin: 0,
-                suggestedMax: 20,
-                angleLines: { color: "rgba(148,163,184,0.2)" },
-                grid: { color: "rgba(148,163,184,0.2)" },
-                pointLabels: { color: "#cbd5f5", font: { size: 12 } },
-                ticks: {
-                  backdropColor: "transparent",
-                  color: "#94a3b8",
-                  stepSize: 5,
-                },
-              },
-            },
-            plugins: {
-              legend: {
-                labels: { color: "#e2e8f0" },
-              },
-            },
-          },
-        });
-      }
+                    const data = await response.json();
+                    
+                    if (data.error || !response.ok) {
+                        throw new Error(data.error || `HTTP Status: ${response.status}`);
+                    }
+                    
+                    setResult(data.result);
+                    setAvgData(data.average);
+                } catch (error) {
+                    setResult({ error: `評価中にエラーが発生しました: ${error.message}` });
+                    setAvgData([0, 0, 0, 0, 0]);
+                } finally {
+                    setLoading(false);
+                }
+            };
 
-      function updateCount(textarea) {
-        const count = textarea.value.length;
-        document.getElementById("char-count").textContent = `${count}文字`;
-      }
-      const esTextarea = document.querySelector('textarea[name="es_text"]');
-      if (esTextarea) {
-        updateCount(esTextarea);
-      }
+            const handleShare = () => {
+                if (!result || result.error) return;
 
-      const form = document.getElementById("es-form");
-      const submitBtn = document.getElementById("submit-btn");
-      const loader = document.getElementById("loading-indicator");
+                const totalScore = result.total_score || 'N/A';
+                const verdict = result.result || '判定不能';
+                
+                const text = `【AI就活】私のESスコアは${totalScore}点でした！判定：${verdict} #ES道場 #就活`;
+                // 現在のページのURLを使用
+                const url = window.location.origin;
+                
+                window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`, '_blank');
+            };
 
-      form?.addEventListener("submit", () => {
-        submitBtn.disabled = true;
-        submitBtn.classList.add("opacity-70", "cursor-not-allowed");
-        submitBtn.innerHTML = `
-          <span class="inline-block h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
-          面接官がESを熟読中...
-        `;
-        loader.classList.remove("hidden");
-      });
+            const InputForm = (
+                <div className="bg-gray-800 p-4 sm:p-6 rounded-2xl shadow-xl space-y-4">
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <input
+                            type="text"
+                            value={companyName}
+                            onChange={(e) => setCompanyName(e.target.value)}
+                            placeholder="志望企業名 (例: アクセンチュア, 空欄OK)"
+                            className="w-full p-3 bg-gray-700 border border-gray-600 rounded-xl text-white placeholder-gray-500 focus:ring-red-500 focus:border-red-500 text-sm"
+                        />
+                        
+                        <div className="grid grid-cols-2 gap-3">
+                            <select
+                                value={category}
+                                onChange={(e) => setCategory(e.target.value)}
+                                className="w-full p-3 bg-gray-700 border border-gray-600 rounded-xl text-white focus:ring-red-500 focus:border-red-500 appearance-none text-sm"
+                            >
+                                {['志望動機', 'ガクチカ', '自己PR', 'その他'].map(opt => (
+                                    <option key={opt} value={opt}>{opt}</option>
+                                ))}
+                            </select>
+                            <input
+                                type="number"
+                                value={targetLength}
+                                onChange={(e) => setTargetLength(e.target.value)}
+                                placeholder="目標文字数 (例: 400)"
+                                min="0"
+                                className="w-full p-3 bg-gray-700 border border-gray-600 rounded-xl text-white placeholder-gray-500 focus:ring-red-500 focus:border-red-500 text-sm"
+                            />
+                        </div>
+
+                        <div>
+                            <textarea
+                                value={esText}
+                                onChange={(e) => setEsText(e.target.value)}
+                                rows="8"
+                                placeholder="あなたのES本文を入力してください。"
+                                className="w-full p-3 bg-gray-700 border border-gray-600 rounded-xl text-white placeholder-gray-500 focus:ring-red-500 focus:border-red-500 resize-none text-sm"
+                                required
+                            />
+                            <div className="text-right text-xs text-gray-400 mt-1">
+                                現在: {currentLength} 文字
+                            </div>
+                        </div>
+                        
+                        <button
+                            type="submit"
+                            disabled={loading || currentLength === 0}
+                            className={`w-full py-3 rounded-xl font-bold transition duration-150 flex items-center justify-center 
+                                ${loading || currentLength === 0 ? 'bg-gray-600 text-gray-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-500/50'}`}
+                        >
+                            {loading ? (
+                                <div className="flex items-center">
+                                    <svg className="animate-spin h-5 w-5 text-white mr-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    面接官がESを熟読中...
+                                </div>
+                            ) : (
+                                'AIにガチ採点してもらう'
+                            )}
+                        </button>
+                    </form>
+                </div>
+            );
+
+            const ResultDisplay = () => {
+                if (result && result.error) {
+                    return (
+                        <div className="bg-red-900 p-4 rounded-xl text-white text-center shadow-lg">
+                            <p className="font-bold">🚨 評価エラー 🚨</p>
+                            <p className="text-sm mt-1">{result.error}</p>
+                            <p className="text-xs text-red-300 mt-2">（※サーバーログを確認してください。）</p>
+                        </div>
+                    );
+                }
+
+                if (!result || !result.scores) {
+                    return (
+                        <div className="text-center p-8 bg-gray-800 rounded-2xl shadow-xl">
+                            <p className="text-gray-400 text-lg">
+                                <span className="text-red-400">プロの評価</span>はここに表示されます
+                            </p>
+                            <p className="text-sm text-gray-500 mt-2">（採点基準：論理性、具体性、熱意など5項目）</p>
+                        </div>
+                    );
+                }
+                
+                const totalScore = result.total_score || 0;
+                const verdictColor = result.result === '合格' ? 'bg-green-600' : 'bg-red-600';
+                const verdictText = result.result === '合格' ? '合格' : '不合格';
+
+                return (
+                    <div className="bg-gray-800 p-4 sm:p-6 rounded-2xl shadow-xl space-y-4">
+                        <div className="flex flex-col items-center justify-center space-y-3 border-b border-gray-700 pb-4">
+                            <div className={`text-2xl sm:text-3xl font-extrabold px-5 py-1 rounded-full ${verdictColor} text-white shadow-lg`}>
+                                判定：{verdictText}
+                            </div>
+                            <div className="text-5xl sm:text-6xl font-black text-white">
+                                {totalScore} <span className="text-xl sm:text-2xl font-light text-gray-400">/ 100 点</span>
+                            </div>
+                            <button
+                                onClick={handleShare}
+                                className="flex items-center space-x-2 px-4 py-2 bg-black text-white rounded-full font-bold transition duration-150 hover:bg-gray-900 shadow-md text-sm"
+                            >
+                                <svg viewBox="0 0 24 24" aria-hidden="true" className="w-4 h-4 fill-white"><g><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.814L4.99 21.75H1.68l7.386-8.835L1.254 2.25H8.08l4.717 6.231zm-1.196 9.917L3.483 3.33h2.176l10.428 12.016zm-7.009 6.012l-1.996-1.034 10.43-12.016 1.996 1.034z"></path></g></svg>
+                                <span>X (Twitter) で結果をシェア</span>
+                            </button>
+                        </div>
+
+                        <div className="w-full max-w-sm mx-auto">
+                            <h2 className="text-lg font-bold text-white mb-2 text-center">スコアレーダー</h2>
+                            <div className='relative' style={{ height: '300px' }}>
+                                <canvas ref={chartRef}></canvas>
+                            </div>
+                        </div>
+                        
+                        <h2 className="text-xl font-bold text-gray-100 border-b border-gray-700 pb-2 mb-4 mt-6">AIフィードバック</h2>
+                        
+                        <div className="grid md:grid-cols-2 gap-4">
+                            <div className="bg-gray-700 p-4 rounded-lg">
+                                <h3 className="text-base font-semibold text-green-400 mb-2">✅ 良い点</h3>
+                                <ul className="list-disc list-inside text-sm text-gray-300 space-y-1">
+                                    {result.good_points?.map((point, index) => (<li key={index}>{point}</li>))}
+                                </ul>
+                            </div>
+                            <div className="bg-gray-700 p-4 rounded-lg">
+                                <h3 className="text-base font-semibold text-red-400 mb-2">❌ 悪い点 / 改善点</h3>
+                                <ul className="list-disc list-inside text-sm text-gray-300 space-y-1">
+                                    {result.bad_points?.map((point, index) => (<li key={index}>{point}</li>))}
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div className="bg-gray-700 p-4 rounded-lg border-l-4 border-red-500 mt-4">
+                            <h3 className="text-lg font-semibold text-white mb-2">💡 総合アドバイス</h3>
+                            <p className="text-sm whitespace-pre-line text-gray-300">{result.advice}</p>
+                        </div>
+
+                        <div className="bg-gray-900 p-4 rounded-lg border-l-4 border-blue-500 mt-4">
+                            <h3 className="text-lg font-semibold text-blue-400 mb-2">💬 想定される深掘り質問</h3>
+                            <ul className="list-decimal list-inside text-sm text-gray-300 space-y-1">
+                                {result.questions?.map((q, index) => (<li key={index}>{q}</li>))}
+                            </ul>
+                        </div>
+                    </div>
+                );
+            };
+
+            return (
+                <div className="min-h-screen bg-gray-900 p-2 sm:p-4 md:p-8 font-sans">
+                    <div className="max-w-4xl mx-auto">
+                        <header className="text-center mb-6 pt-4">
+                            <h1 className="text-3xl sm:text-4xl font-extrabold text-white">
+                                AI 鬼面接官
+                            </h1>
+                            <p className="text-red-400 mt-1 sm:text-lg">
+                                就活ES偏差値 厳格採点ツール
+                            </p>
+                        </header>
+
+                        <main className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <div className="lg:order-1">
+                                {InputForm}
+                            </div>
+                            
+                            <div className="lg:order-2">
+                                {ResultDisplay()}
+                            </div>
+                        </main>
+                        
+                        <footer className="text-center text-gray-500 text-xs mt-12">
+                            <p>© 2025 ES Evaluator App. | Powered by Gemini 2.5 Pro</p>
+                        </footer>
+                    </div>
+                </div>
+            );
+        };
+
+        // React 18のcreateRootを使用（CDN版でも動作するはず）
+        // もしエラーが出る場合は、ReactDOM.render(<App />, document.getElementById('root')); に変更
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
     </script>
-  </body>
+</body>
 </html>
-
-
-
