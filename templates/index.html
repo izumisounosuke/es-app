@@ -17,10 +17,11 @@
     <div id="root"></div>
 
     <script type="text/babel">
-    /* 重要: Flask (Jinja2) と React の構文衝突を防ぐため、
-       Javascript全体を {% raw %} タグで囲みます。
+    /* 重要: Flask (Jinja2) と React の構文衝突を防ぐため、{% raw %} タグで囲んでいます。
+       また、コードの先頭にあった 'import' 構文を削除し、ReactDOMの実行コードを最後に移動しました。
     */
     {% raw %}
+        // --- React Hooksの宣言 (const { useState, ... } は残します) ---
         const { useState, useEffect, useCallback, useRef } = React;
 
         const App = () => {
@@ -35,8 +36,8 @@
             const chartRef = useRef(null);
             const chartInstance = useRef(null);
 
-            // API URL (相対パスで指定)
-            const API_URL = "/api/evaluate";
+            // 🚨 API URL (あなたのURLに合わせてください)
+            const API_URL = "https://es-app-demo.onrender.com/api/evaluate";
 
             useEffect(() => {
                 setCurrentLength(esText.length);
@@ -144,6 +145,7 @@
                     
                     setResult(data.result);
                     setAvgData(data.average);
+
                 } catch (error) {
                     setResult({ error: `評価中にエラーが発生しました: ${error.message}` });
                     setAvgData([0, 0, 0, 0, 0]);
@@ -154,13 +156,11 @@
 
             const handleShare = () => {
                 if (!result || result.error) return;
-
                 const totalScore = result.total_score || 'N/A';
                 const verdict = result.result || '判定不能';
                 
                 const text = `【AI就活】私のESスコアは${totalScore}点でした！判定：${verdict} #ES道場 #就活`;
-                // 現在のページのURLを使用
-                const url = window.location.origin;
+                const url = API_URL.replace('/api/evaluate', ''); 
                 
                 window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`, '_blank');
             };
