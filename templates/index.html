@@ -10,164 +10,21 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.0/babel.min.js"></script>
     <style>
-      body { font-family: 'Inter', sans-serif; }
+      body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: white; }
     </style>
 </head>
-<body class="bg-gray-900">
+<body>
     <div id="root"></div>
 
     <script type="text/babel">
-    /* 重要: Flask (Jinja2) と React の構文衝突を防ぐため、{% raw %} タグで囲んでいます。
-       また、コードの先頭にあった 'import' 構文を削除し、ReactDOMの実行コードを最後に移動しました。
-    */
     {% raw %}
-        // --- React Hooksの宣言 (const { useState, ... } は残します) ---
         const { useState, useEffect, useCallback, useRef } = React;
 
-        const App = () => {
-            const [companyName, setCompanyName] = useState('');
-            const [category, setCategory] = useState('志望動機');
-            const [targetLength, setTargetLength] = useState('');
-            const [esText, setEsText] = useState('');
-            const [currentLength, setCurrentLength] = useState(0);
-            const [result, setResult] = useState(null);
-            const [avgData, setAvgData] = useState([16, 15, 17, 15, 16]);
-            const [loading, setLoading] = useState(false);
-            const chartRef = useRef(null);
-            const chartInstance = useRef(null);
-
-            // 🚨 API URL (あなたのURLに合わせてください)
-            const API_URL = "https://es-app-demo.onrender.com/api/evaluate";
-
-            useEffect(() => {
-                setCurrentLength(esText.length);
-            }, [esText]);
-            
-            const renderChart = useCallback((userData, avgData) => {
-                if (!window.Chart || !chartRef.current) return; 
-
-                const ctx = chartRef.current.getContext('2d');
-                const labels = ["論理性", "具体性", "熱意", "自己分析", "将来性"];
-                const maxScore = 20;
-
-                if (chartInstance.current) {
-                    chartInstance.current.destroy();
-                }
-
-                const data = {
-                    labels: labels,
-                    datasets: [
-                        {
-                            label: 'あなたのスコア',
-                            data: userData,
-                            backgroundColor: 'rgba(255, 99, 132, 0.4)',
-                            borderColor: 'rgba(255, 99, 132, 1)',
-                            pointBackgroundColor: 'rgba(255, 99, 132, 1)',
-                            borderWidth: 2,
-                        },
-                        {
-                            label: '平均スコア',
-                            data: avgData,
-                            backgroundColor: 'rgba(108, 117, 125, 0.2)',
-                            borderColor: 'rgba(108, 117, 125, 0.8)',
-                            pointBackgroundColor: 'rgba(108, 117, 125, 0.8)',
-                            borderWidth: 1,
-                        }
-                    ]
-                };
-
-                chartInstance.current = new window.Chart(ctx, {
-                    type: 'radar',
-                    data: data,
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        scales: {
-                            r: {
-                                angleLines: { color: 'rgba(255, 255, 255, 0.2)' },
-                                grid: { color: 'rgba(255, 255, 255, 0.2)' },
-                                pointLabels: { color: 'white', font: { size: 12 } },
-                                suggestedMin: 0,
-                                suggestedMax: maxScore,
-                                ticks: {
-                                    stepSize: 5,
-                                    color: 'rgba(255, 255, 255, 0.6)',
-                                    backdropColor: 'transparent', 
-                                    showLabelBackdrop: false,
-                                }
-                            }
-                        },
-                        plugins: {
-                            legend: {
-                                position: 'bottom',
-                                labels: { color: 'white' }
-                            },
-                        },
-                    },
-                });
-            }, []);
-            
-            useEffect(() => {
-                if (result && result.scores) {
-                    setTimeout(() => {
-                        renderChart(result.scores, avgData);
-                    }, 100);
-                }
-            }, [result, avgData, renderChart]);
-
-            const handleSubmit = async (e) => {
-                e.preventDefault();
-                if (!esText.trim()) return;
-
-                setLoading(true);
-                setResult(null);
-
-                const formData = new URLSearchParams();
-                formData.append('company_name', companyName);
-                formData.append('category', category);
-                formData.append('target_length', targetLength);
-                formData.append('es_text', esText);
-
-                try {
-                    const response = await fetch(API_URL, {
-                        method: 'POST',
-                        body: formData,
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded',
-                        },
-                    });
-
-                    const data = await response.json();
-                    
-                    if (data.error || !response.ok) {
-                        throw new Error(data.error || `HTTP Status: ${response.status}`);
-                    }
-                    
-                    setResult(data.result);
-                    setAvgData(data.average);
-
-                } catch (error) {
-                    setResult({ error: `評価中にエラーが発生しました: ${error.message}` });
-                    setAvgData([0, 0, 0, 0, 0]);
-                } finally {
-                    setLoading(false);
-                }
-            };
-
-            const handleShare = () => {
-                if (!result || result.error) return;
-                const totalScore = result.total_score || 'N/A';
-                const verdict = result.result || '判定不能';
-                
-                const text = `【AI就活】私のESスコアは${totalScore}点でした！判定：${verdict} #ES道場 #就活`;
-                const url = API_URL.replace('/api/evaluate', ''); 
-                
-                window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`, '_blank');
-            };
-
-            const InputForm = (
+        // --- 子コンポーネント: 入力フォーム ---
+        const InputForm = ({ onSubmit, loading, esText, setEsText, companyName, setCompanyName, category, setCategory, targetLength, setTargetLength }) => {
+            return (
                 <div className="bg-gray-800 p-4 sm:p-6 rounded-2xl shadow-xl space-y-4">
-                    <form onSubmit={handleSubmit} className="space-y-4">
+                    <form onSubmit={onSubmit} className="space-y-4">
                         <input
                             type="text"
                             value={companyName}
@@ -175,7 +32,6 @@
                             placeholder="志望企業名 (例: アクセンチュア, 空欄OK)"
                             className="w-full p-3 bg-gray-700 border border-gray-600 rounded-xl text-white placeholder-gray-500 focus:ring-red-500 focus:border-red-500 text-sm"
                         />
-                        
                         <div className="grid grid-cols-2 gap-3">
                             <select
                                 value={category}
@@ -195,7 +51,6 @@
                                 className="w-full p-3 bg-gray-700 border border-gray-600 rounded-xl text-white placeholder-gray-500 focus:ring-red-500 focus:border-red-500 text-sm"
                             />
                         </div>
-
                         <div>
                             <textarea
                                 value={esText}
@@ -206,139 +61,176 @@
                                 required
                             />
                             <div className="text-right text-xs text-gray-400 mt-1">
-                                現在: {currentLength} 文字
+                                現在: {esText.length} 文字
                             </div>
                         </div>
-                        
                         <button
                             type="submit"
-                            disabled={loading || currentLength === 0}
+                            disabled={loading || esText.length === 0}
                             className={`w-full py-3 rounded-xl font-bold transition duration-150 flex items-center justify-center 
-                                ${loading || currentLength === 0 ? 'bg-gray-600 text-gray-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-500/50'}`}
+                                ${loading || esText.length === 0 ? 'bg-gray-600 text-gray-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-500/50'}`}
                         >
-                            {loading ? (
-                                <div className="flex items-center">
-                                    <svg className="animate-spin h-5 w-5 text-white mr-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                    </svg>
-                                    面接官がESを熟読中...
-                                </div>
-                            ) : (
-                                'AIにガチ採点してもらう'
-                            )}
+                            {loading ? '面接官がESを熟読中...' : 'AIにガチ採点してもらう'}
                         </button>
                     </form>
                 </div>
             );
+        };
 
-            const ResultDisplay = () => {
-                if (result && result.error) {
-                    return (
-                        <div className="bg-red-900 p-4 rounded-xl text-white text-center shadow-lg">
-                            <p className="font-bold">🚨 評価エラー 🚨</p>
-                            <p className="text-sm mt-1">{result.error}</p>
-                            <p className="text-xs text-red-300 mt-2">（※サーバーログを確認してください。）</p>
-                        </div>
-                    );
+        // --- 子コンポーネント: 結果表示 ---
+        const ResultDisplay = ({ result, avgData, handleShare }) => {
+            const chartRef = useRef(null);
+            const chartInstance = useRef(null);
+
+            useEffect(() => {
+                if (result && result.scores && window.Chart) {
+                    if (chartInstance.current) {
+                        chartInstance.current.destroy();
+                    }
+                    const ctx = chartRef.current.getContext('2d');
+                    
+                    chartInstance.current = new Chart(ctx, {
+                        type: 'radar',
+                        data: {
+                            labels: ["論理性", "具体性", "熱意", "自己分析", "将来性"],
+                            datasets: [
+                                {
+                                    label: 'あなたのスコア',
+                                    data: result.scores,
+                                    backgroundColor: 'rgba(255, 99, 132, 0.4)',
+                                    borderColor: 'rgba(255, 99, 132, 1)',
+                                    borderWidth: 2,
+                                },
+                                {
+                                    label: '平均スコア',
+                                    data: avgData,
+                                    backgroundColor: 'rgba(108, 117, 125, 0.2)',
+                                    borderColor: 'rgba(108, 117, 125, 0.8)',
+                                    borderWidth: 1,
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {
+                                r: {
+                                    suggestedMin: 0,
+                                    suggestedMax: 20,
+                                    angleLines: { color: 'rgba(255, 255, 255, 0.2)' },
+                                    grid: { color: 'rgba(255, 255, 255, 0.2)' },
+                                    pointLabels: { color: 'white', font: { size: 12 } },
+                                    ticks: { backdropColor: 'transparent', stepSize: 5, display: false }
+                                }
+                            },
+                            plugins: {
+                                legend: { position: 'bottom', labels: { color: 'white' } }
+                            }
+                        }
+                    });
                 }
+            }, [result, avgData]);
 
-                if (!result || !result.scores) {
-                    return (
-                        <div className="text-center p-8 bg-gray-800 rounded-2xl shadow-xl">
-                            <p className="text-gray-400 text-lg">
-                                <span className="text-red-400">プロの評価</span>はここに表示されます
-                            </p>
-                            <p className="text-sm text-gray-500 mt-2">（採点基準：論理性、具体性、熱意など5項目）</p>
-                        </div>
-                    );
-                }
-                
-                const totalScore = result.total_score || 0;
-                const verdictColor = result.result === '合格' ? 'bg-green-600' : 'bg-red-600';
-                const verdictText = result.result === '合格' ? '合格' : '不合格';
+            if (result && result.error) {
+                return <div className="bg-red-900 p-4 rounded-xl text-center"><p className="font-bold">🚨 エラー</p><p className="text-sm">{result.error}</p></div>;
+            }
+            if (!result || !result.scores) {
+                return <div className="text-center p-8 bg-gray-800 rounded-2xl shadow-xl"><p className="text-gray-400">結果はここに表示されます</p></div>;
+            }
 
-                return (
-                    <div className="bg-gray-800 p-4 sm:p-6 rounded-2xl shadow-xl space-y-4">
-                        <div className="flex flex-col items-center justify-center space-y-3 border-b border-gray-700 pb-4">
-                            <div className={`text-2xl sm:text-3xl font-extrabold px-5 py-1 rounded-full ${verdictColor} text-white shadow-lg`}>
-                                判定：{verdictText}
-                            </div>
-                            <div className="text-5xl sm:text-6xl font-black text-white">
-                                {totalScore} <span className="text-xl sm:text-2xl font-light text-gray-400">/ 100 点</span>
-                            </div>
-                            <button
-                                onClick={handleShare}
-                                className="flex items-center space-x-2 px-4 py-2 bg-black text-white rounded-full font-bold transition duration-150 hover:bg-gray-900 shadow-md text-sm"
-                            >
-                                <svg viewBox="0 0 24 24" aria-hidden="true" className="w-4 h-4 fill-white"><g><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.814L4.99 21.75H1.68l7.386-8.835L1.254 2.25H8.08l4.717 6.231zm-1.196 9.917L3.483 3.33h2.176l10.428 12.016zm-7.009 6.012l-1.996-1.034 10.43-12.016 1.996 1.034z"></path></g></svg>
-                                <span>X (Twitter) で結果をシェア</span>
-                            </button>
+            return (
+                <div className="bg-gray-800 p-4 sm:p-6 rounded-2xl shadow-xl space-y-6">
+                    <div className="text-center border-b border-gray-700 pb-4">
+                        <div className={`text-2xl font-bold px-4 py-1 rounded-full inline-block mb-2 text-white ${result.result === '合格' ? 'bg-green-600' : 'bg-red-600'}`}>
+                            判定：{result.result || '判定不能'}
                         </div>
-
-                        <div className="w-full max-w-sm mx-auto">
-                            <h2 className="text-lg font-bold text-white mb-2 text-center">スコアレーダー</h2>
-                            <div className='relative' style={{ height: '300px' }}>
-                                <canvas ref={chartRef}></canvas>
-                            </div>
-                        </div>
-                        
-                        <h2 className="text-xl font-bold text-gray-100 border-b border-gray-700 pb-2 mb-4 mt-6">AIフィードバック</h2>
-                        
-                        <div className="grid md:grid-cols-2 gap-4">
-                            <div className="bg-gray-700 p-4 rounded-lg">
-                                <h3 className="text-base font-semibold text-green-400 mb-2">✅ 良い点</h3>
-                                <ul className="list-disc list-inside text-sm text-gray-300 space-y-1">
-                                    {result.good_points?.map((point, index) => (<li key={index}>{point}</li>))}
-                                </ul>
-                            </div>
-                            <div className="bg-gray-700 p-4 rounded-lg">
-                                <h3 className="text-base font-semibold text-red-400 mb-2">❌ 悪い点 / 改善点</h3>
-                                <ul className="list-disc list-inside text-sm text-gray-300 space-y-1">
-                                    {result.bad_points?.map((point, index) => (<li key={index}>{point}</li>))}
-                                </ul>
-                            </div>
-                        </div>
-
-                        <div className="bg-gray-700 p-4 rounded-lg border-l-4 border-red-500 mt-4">
-                            <h3 className="text-lg font-semibold text-white mb-2">💡 総合アドバイス</h3>
-                            <p className="text-sm whitespace-pre-line text-gray-300">{result.advice}</p>
-                        </div>
-
-                        <div className="bg-gray-900 p-4 rounded-lg border-l-4 border-blue-500 mt-4">
-                            <h3 className="text-lg font-semibold text-blue-400 mb-2">💬 想定される深掘り質問</h3>
-                            <ul className="list-decimal list-inside text-sm text-gray-300 space-y-1">
-                                {result.questions?.map((q, index) => (<li key={index}>{q}</li>))}
-                            </ul>
-                        </div>
+                        <div className="text-5xl font-black text-white">{result.total_score || 0} <span className="text-xl font-light text-gray-400">/ 100</span></div>
+                        <button onClick={handleShare} className="mt-4 px-4 py-2 bg-black rounded-full font-bold text-sm text-white inline-flex items-center gap-2 hover:bg-gray-900">
+                            <span>X でシェア</span>
+                        </button>
                     </div>
-                );
+                    
+                    <div className="relative h-64 w-full">
+                        <canvas ref={chartRef}></canvas>
+                    </div>
+
+                    <div className="space-y-4">
+                        <div className="bg-gray-700 p-4 rounded-lg"><h3 className="font-bold text-green-400">✅ 良い点</h3><ul className="list-disc pl-4 text-sm text-gray-300">{result.good_points?.map((p,i)=><li key={i}>{p}</li>)}</ul></div>
+                        <div className="bg-gray-700 p-4 rounded-lg"><h3 className="font-bold text-red-400">❌ 改善点</h3><ul className="list-disc pl-4 text-sm text-gray-300">{result.bad_points?.map((p,i)=><li key={i}>{p}</li>)}</ul></div>
+                        <div className="bg-gray-700 p-4 rounded-lg border-l-4 border-red-500"><h3 className="font-bold text-white">💡 アドバイス</h3><p className="text-sm text-gray-300 whitespace-pre-line">{result.advice}</p></div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- メインアプリ ---
+        const App = () => {
+            const [companyName, setCompanyName] = useState('');
+            const [category, setCategory] = useState('志望動機');
+            const [targetLength, setTargetLength] = useState('');
+            const [esText, setEsText] = useState('');
+            const [result, setResult] = useState(null);
+            const [avgData, setAvgData] = useState([16, 15, 17, 15, 16]);
+            const [loading, setLoading] = useState(false);
+
+            // 🚨 重要: 自分のRenderのURLかどうか確認してください
+            const API_URL = "/api/evaluate"; 
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                if (!esText.trim()) return;
+                setLoading(true);
+                setResult(null);
+
+                const formData = new URLSearchParams();
+                formData.append('company_name', companyName);
+                formData.append('category', category);
+                formData.append('target_length', targetLength);
+                formData.append('es_text', esText);
+
+                try {
+                    const res = await fetch(API_URL, {
+                        method: 'POST',
+                        body: formData,
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || '通信エラー');
+                    setResult(data.result);
+                    setAvgData(data.average);
+                } catch (err) {
+                    setResult({ error: err.message });
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const handleShare = () => {
+                if (!result) return;
+                const text = `【AI就活】ESスコア：${result.total_score}点（${result.result}） #ES道場`;
+                const url = window.location.href;
+                window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`, '_blank');
             };
 
             return (
-                <div className="min-h-screen bg-gray-900 p-2 sm:p-4 md:p-8 font-sans">
+                <div className="min-h-screen p-4 md:p-8">
                     <div className="max-w-4xl mx-auto">
-                        <header className="text-center mb-6 pt-4">
-                            <h1 className="text-3xl sm:text-4xl font-extrabold text-white">
-                                AI 鬼面接官
-                            </h1>
-                            <p className="text-red-400 mt-1 sm:text-lg">
-                                就活ES偏差値 厳格採点ツール
-                            </p>
+                        <header className="text-center mb-8">
+                            <h1 className="text-4xl font-extrabold text-white">AI 鬼面接官</h1>
+                            <p className="text-red-400 mt-2">就活ES偏差値 厳格採点ツール</p>
                         </header>
-
                         <main className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            <div className="lg:order-1">
-                                {InputForm}
-                            </div>
-                            
-                            <div className="lg:order-2">
-                                {ResultDisplay()}
-                            </div>
+                            <InputForm 
+                                onSubmit={handleSubmit} loading={loading} 
+                                esText={esText} setEsText={setEsText} 
+                                companyName={companyName} setCompanyName={setCompanyName}
+                                category={category} setCategory={setCategory}
+                                targetLength={targetLength} setTargetLength={setTargetLength}
+                            />
+                            <ResultDisplay result={result} avgData={avgData} handleShare={handleShare} />
                         </main>
-                        
                         <footer className="text-center text-gray-500 text-xs mt-12">
-                            <p>© 2025 ES Evaluator App. | Powered by Gemini 2.5 Pro</p>
+                            <p>© 2025 ES Evaluator App</p>
                         </footer>
                     </div>
                 </div>
