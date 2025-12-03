@@ -109,6 +109,9 @@
             const [rewriteLoading, setRewriteLoading] = useState(false);
             const [showRewriteModal, setShowRewriteModal] = useState(false);
 
+            // 🚨 ユーザーが取得したStripeのテスト用決済リンク
+            const STRIPE_CHECKOUT_URL = "https://buy.stripe.com/test_00wdR911Sfkq7943bze3e00";
+
             useEffect(() => {
                 if (result && result.scores && window.Chart) {
                     if (chartInstance.current) {
@@ -161,40 +164,14 @@
             const handleRewrite = async () => {
                 if (!originalText || !result) return;
                 
-                setRewriteLoading(true);
-                setRewrittenText(null);
-                
-                try {
-                    const formData = new URLSearchParams();
-                    formData.append('original_text', originalText);
-                    formData.append('company_name', companyName || '');
-                    formData.append('category', category);
-                    if (result.bad_points) {
-                        result.bad_points.forEach(point => {
-                            formData.append('bad_points', point);
-                        });
-                    }
-                    formData.append('advice', result.advice || '');
-                    
-                    const res = await fetch('/api/rewrite', {
-                        method: 'POST',
-                        body: formData,
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-                    });
-                    
-                    const data = await res.json();
-                    if (!res.ok) throw new Error(data.error || 'リライトエラー');
-                    
-                    setRewrittenText(data.rewritten_text);
-                    setShowRewriteModal(true);
-                    if (onRewriteComplete) {
-                        onRewriteComplete(data.rewritten_text);
-                    }
-                } catch (err) {
-                    alert(`リライトエラー: ${err.message}`);
-                } finally {
-                    setRewriteLoading(false);
+                // 未ログインユーザーへの対応
+                if (!user) {
+                    alert('リライト機能を利用するにはログインが必要です。');
+                    return;
                 }
+                
+                // ログイン済みユーザーをStripe決済ページへリダイレクト
+                window.location.href = STRIPE_CHECKOUT_URL;
             };
 
             if (result && result.error) {
