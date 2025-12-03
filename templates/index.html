@@ -78,9 +78,12 @@
         };
 
         // --- 子コンポーネント: 結果表示 ---
-        const ResultDisplay = ({ result, avgData, handleShare }) => {
+        const ResultDisplay = ({ result, avgData, handleShare, originalText, companyName, category, onRewriteComplete }) => {
             const chartRef = useRef(null);
             const chartInstance = useRef(null);
+            const [rewrittenText, setRewrittenText] = useState(null);
+            const [rewriteLoading, setRewriteLoading] = useState(false);
+            const [showRewriteModal, setShowRewriteModal] = useState(false);
 
             useEffect(() => {
                 if (result && result.scores && window.Chart) {
@@ -131,6 +134,46 @@
                 }
             }, [result, avgData]);
 
+            const handleRewrite = async () => {
+                if (!originalText || !result) return;
+                
+                setRewriteLoading(true);
+                setRewrittenText(null);
+                
+                try {
+                    const formData = new URLSearchParams();
+                    formData.append('original_text', originalText);
+                    formData.append('company_name', companyName || '');
+                    formData.append('category', category);
+                    // bad_pointsを配列として送信
+                    if (result.bad_points) {
+                        result.bad_points.forEach(point => {
+                            formData.append('bad_points', point);
+                        });
+                    }
+                    formData.append('advice', result.advice || '');
+                    
+                    const res = await fetch('/api/rewrite', {
+                        method: 'POST',
+                        body: formData,
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+                    });
+                    
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || 'リライトエラー');
+                    
+                    setRewrittenText(data.rewritten_text);
+                    setShowRewriteModal(true);
+                    if (onRewriteComplete) {
+                        onRewriteComplete(data.rewritten_text);
+                    }
+                } catch (err) {
+                    alert(`リライトエラー: ${err.message}`);
+                } finally {
+                    setRewriteLoading(false);
+                }
+            };
+
             if (result && result.error) {
                 return <div className="bg-red-900 p-4 rounded-xl text-center"><p className="font-bold">🚨 エラー</p><p className="text-sm">{result.error}</p></div>;
             }
@@ -139,27 +182,96 @@
             }
 
             return (
-                <div className="bg-gray-800 p-4 sm:p-6 rounded-2xl shadow-xl space-y-6">
-                    <div className="text-center border-b border-gray-700 pb-4">
-                        <div className={`text-2xl font-bold px-4 py-1 rounded-full inline-block mb-2 text-white ${result.result === '合格' ? 'bg-green-600' : 'bg-red-600'}`}>
-                            判定：{result.result || '判定不能'}
+                <>
+                    <div className="bg-gray-800 p-4 sm:p-6 rounded-2xl shadow-xl space-y-6">
+                        <div className="text-center border-b border-gray-700 pb-4">
+                            <div className={`text-2xl font-bold px-4 py-1 rounded-full inline-block mb-2 text-white ${result.result === '合格' ? 'bg-green-600' : 'bg-red-600'}`}>
+                                判定：{result.result || '判定不能'}
+                            </div>
+                            <div className="text-5xl font-black text-white">{result.total_score || 0} <span className="text-xl font-light text-gray-400">/ 100</span></div>
+                            <div className="flex gap-2 justify-center mt-4">
+                                <button onClick={handleShare} className="px-4 py-2 bg-black rounded-full font-bold text-sm text-white inline-flex items-center gap-2 hover:bg-gray-900">
+                                    <span>X でシェア</span>
+                                </button>
+                                <button 
+                                    onClick={handleRewrite}
+                                    disabled={rewriteLoading}
+                                    className={`px-4 py-2 rounded-full font-bold text-sm inline-flex items-center gap-2 ${
+                                        rewriteLoading 
+                                            ? 'bg-gray-600 text-gray-400 cursor-not-allowed' 
+                                            : 'bg-blue-600 hover:bg-blue-700 text-white'
+                                    }`}
+                                >
+                                    {rewriteLoading ? (
+                                        <>
+                                            <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                            </svg>
+                                            <span>リライト中...</span>
+                                        </>
+                                    ) : (
+                                        <span>✨ AIにリライトさせる</span>
+                                    )}
+                                </button>
+                            </div>
                         </div>
-                        <div className="text-5xl font-black text-white">{result.total_score || 0} <span className="text-xl font-light text-gray-400">/ 100</span></div>
-                        <button onClick={handleShare} className="mt-4 px-4 py-2 bg-black rounded-full font-bold text-sm text-white inline-flex items-center gap-2 hover:bg-gray-900">
-                            <span>X でシェア</span>
-                        </button>
-                    </div>
-                    
-                    <div className="relative h-64 w-full">
-                        <canvas ref={chartRef}></canvas>
+                        
+                        <div className="relative h-64 w-full">
+                            <canvas ref={chartRef}></canvas>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div className="bg-gray-700 p-4 rounded-lg"><h3 className="font-bold text-green-400">✅ 良い点</h3><ul className="list-disc pl-4 text-sm text-gray-300">{result.good_points?.map((p,i)=><li key={i}>{p}</li>)}</ul></div>
+                            <div className="bg-gray-700 p-4 rounded-lg"><h3 className="font-bold text-red-400">❌ 改善点</h3><ul className="list-disc pl-4 text-sm text-gray-300">{result.bad_points?.map((p,i)=><li key={i}>{p}</li>)}</ul></div>
+                            <div className="bg-gray-700 p-4 rounded-lg border-l-4 border-red-500"><h3 className="font-bold text-white">💡 アドバイス</h3><p className="text-sm text-gray-300 whitespace-pre-line">{result.advice}</p></div>
+                        </div>
                     </div>
 
-                    <div className="space-y-4">
-                        <div className="bg-gray-700 p-4 rounded-lg"><h3 className="font-bold text-green-400">✅ 良い点</h3><ul className="list-disc pl-4 text-sm text-gray-300">{result.good_points?.map((p,i)=><li key={i}>{p}</li>)}</ul></div>
-                        <div className="bg-gray-700 p-4 rounded-lg"><h3 className="font-bold text-red-400">❌ 改善点</h3><ul className="list-disc pl-4 text-sm text-gray-300">{result.bad_points?.map((p,i)=><li key={i}>{p}</li>)}</ul></div>
-                        <div className="bg-gray-700 p-4 rounded-lg border-l-4 border-red-500"><h3 className="font-bold text-white">💡 アドバイス</h3><p className="text-sm text-gray-300 whitespace-pre-line">{result.advice}</p></div>
-                    </div>
-                </div>
+                    {/* リライト結果モーダル */}
+                    {showRewriteModal && rewrittenText && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setShowRewriteModal(false)}>
+                            <div className="bg-gray-800 rounded-2xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                                <div className="p-6">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h2 className="text-2xl font-bold text-white">✨ リライトされたES</h2>
+                                        <button 
+                                            onClick={() => setShowRewriteModal(false)}
+                                            className="text-gray-400 hover:text-white text-2xl"
+                                        >
+                                            ×
+                                        </button>
+                                    </div>
+                                    <div className="bg-gray-900 p-4 rounded-lg mb-4">
+                                        <p className="text-white whitespace-pre-line text-sm leading-relaxed">{rewrittenText}</p>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => {
+                                                navigator.clipboard.writeText(rewrittenText);
+                                                alert('クリップボードにコピーしました！');
+                                            }}
+                                            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-sm"
+                                        >
+                                            コピー
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                if (onRewriteComplete) {
+                                                    onRewriteComplete(rewrittenText);
+                                                }
+                                                setShowRewriteModal(false);
+                                            }}
+                                            className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold text-sm"
+                                        >
+                                            この内容で再評価
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </>
             );
         };
 
@@ -172,6 +284,7 @@
             const [result, setResult] = useState(null);
             const [avgData, setAvgData] = useState([16, 15, 17, 15, 16]);
             const [loading, setLoading] = useState(false);
+            const [originalText, setOriginalText] = useState('');
 
             // 🚨 重要: 自分のRenderのURLかどうか確認してください
             const API_URL = "/api/evaluate"; 
@@ -181,6 +294,7 @@
                 if (!esText.trim()) return;
                 setLoading(true);
                 setResult(null);
+                setOriginalText(esText); // 元のテキストを保存
 
                 const formData = new URLSearchParams();
                 formData.append('company_name', companyName);
@@ -205,6 +319,11 @@
                 }
             };
 
+            const handleRewriteComplete = (rewrittenText) => {
+                // リライトされたテキストを入力欄に設定
+                setEsText(rewrittenText);
+            };
+
             const handleShare = () => {
                 if (!result) return;
                 const text = `【AI就活】ESスコア：${result.total_score}点（${result.result}） #ES道場`;
@@ -227,7 +346,15 @@
                                 category={category} setCategory={setCategory}
                                 targetLength={targetLength} setTargetLength={setTargetLength}
                             />
-                            <ResultDisplay result={result} avgData={avgData} handleShare={handleShare} />
+                            <ResultDisplay 
+                                result={result} 
+                                avgData={avgData} 
+                                handleShare={handleShare}
+                                originalText={originalText}
+                                companyName={companyName}
+                                category={category}
+                                onRewriteComplete={handleRewriteComplete}
+                            />
                         </main>
                         <footer className="text-center text-gray-500 text-xs mt-12">
                             <p>© 2025 ES Evaluator App</p>

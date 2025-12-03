@@ -238,6 +238,89 @@ def api_evaluate():
         return jsonify({"error": f"エラー: {str(e)}"}), 500
 
 
+@app.route('/api/rewrite', methods=['POST'])
+def api_rewrite():
+    """ESリライト用のAPIエンドポイント"""
+    try:
+        # フォームデータの取得
+        original_text = request.form.get('original_text', '').strip()
+        company_name = request.form.get('company_name', '').strip()
+        category = request.form.get('category', '志望動機')
+        bad_points = request.form.getlist('bad_points')  # リストとして取得
+        advice = request.form.get('advice', '').strip()
+        
+        # バリデーション
+        if not original_text:
+            return jsonify({"error": "元のES本文を入力してください。"}), 400
+        
+        # リライト用プロンプト作成
+        bad_points_text = "\n".join([f"- {point}" for point in bad_points]) if bad_points else "なし"
+        
+        prompt = f"""
+        あなたは「厳格な採用責任者」です。以下のESを、指摘された改善点をすべて解消し、合格ラインに達するESに書き直してください。
+
+        【元のES本文】
+        {original_text}
+
+        【応募情報】
+        - 志望企業: {company_name if company_name else "指定なし"}
+        - カテゴリ: {category}
+
+        【改善すべき点】
+        {bad_points_text}
+
+        【アドバイス】
+        {advice}
+
+        【リライト指示】
+        1. 上記の改善点をすべて解消してください。
+        2. 論理的で具体的、かつ説得力のある内容に書き直してください。
+        3. 5W1Hを明確にし、固有名詞や数字を含めてください。
+        4. 企業名が指定されている場合は、その企業の理念や社風に合致する内容にしてください。
+        5. 文字数は元のESと同程度を目安にしてください。
+
+        【出力形式】
+        - JSONやMarkdown記法は不要です。
+        - 純粋なテキスト形式で、新しいES本文のみを出力してください。
+        - 改行は適切に入れてください。
+        """
+
+        # Gemini API呼び出し
+        generation_config = genai.types.GenerationConfig(
+            temperature=0.7,  # リライトなので少し創造性を持たせる
+            top_k=40,
+            top_p=0.95,
+            max_output_tokens=4096,
+        )
+
+        safety_settings = {
+            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+        }
+
+        response = model.generate_content(
+            prompt,
+            generation_config=generation_config,
+            safety_settings=safety_settings
+        )
+        
+        if not response.parts:
+            raise ValueError(f"AI Response Empty. Finish Reason: {response.candidates[0].finish_reason}")
+
+        rewritten_text = response.text.strip()
+        
+        # JSONレスポンスを返す
+        return jsonify({
+            "rewritten_text": rewritten_text
+        }), 200
+        
+    except Exception as e:
+        print(f"Rewrite API Error: {e}")
+        return jsonify({"error": f"リライト中にエラーが発生しました: {str(e)}"}), 500
+
+
 @app.route('/', methods=['GET', 'POST'])
 def index():
     result_data = None
