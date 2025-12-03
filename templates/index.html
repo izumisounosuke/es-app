@@ -4,24 +4,35 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI 鬼面接官 - ES評価ツール</title>
+    <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js CDN -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+    <!-- React & Babel CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.0/babel.min.js"></script>
+    <!-- Supabase JavaScript クライアントライブラリ -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
       body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: white; }
     </style>
 </head>
-<body>
+<body class="bg-gray-900">
     <div id="root"></div>
 
     <script type="text/babel">
     {% raw %}
+        // --- React Hooksの宣言 ---
         const { useState, useEffect, useCallback, useRef } = React;
 
+        // 🚨 Supabase クライアントの初期化 (ユーザーのキーに修正が必要) 🚨
+        const SUPABASE_URL = 'YOUR_SUPABASE_URL_HERE'; 
+        const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY_HERE'; 
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
         // --- 子コンポーネント: 入力フォーム ---
-        const InputForm = ({ onSubmit, loading, esText, setEsText, companyName, setCompanyName, category, setCategory, targetLength, setTargetLength }) => {
+        const InputForm = ({ onSubmit, loading, esText, setEsText, companyName, setCompanyName, category, setCategory, targetLength, setTargetLength, user }) => {
             return (
                 <div className="bg-gray-800 p-4 sm:p-6 rounded-2xl shadow-xl space-y-4">
                     <form onSubmit={onSubmit} className="space-y-4">
@@ -70,15 +81,28 @@
                             className={`w-full py-3 rounded-xl font-bold transition duration-150 flex items-center justify-center 
                                 ${loading || esText.length === 0 ? 'bg-gray-600 text-gray-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-500/50'}`}
                         >
-                            {loading ? '面接官がESを熟読中...' : 'AIにガチ採点してもらう'}
+                            {loading ? (
+                                <div className="flex items-center">
+                                    <svg className="animate-spin h-5 w-5 text-white mr-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    面接官がESを熟読中...
+                                </div>
+                            ) : (
+                                'AIにガチ採点してもらう'
+                            )}
                         </button>
                     </form>
+                    <div className="text-center pt-4 border-t border-gray-700">
+                        {user && <p className="text-sm text-gray-400">ログインすると、リライト機能を無制限で利用できます！</p>}
+                    </div>
                 </div>
             );
         };
 
         // --- 子コンポーネント: 結果表示 ---
-        const ResultDisplay = ({ result, avgData, handleShare, originalText, companyName, category, onRewriteComplete }) => {
+        const ResultDisplay = ({ result, avgData, handleShare, originalText, companyName, category, onRewriteComplete, user }) => {
             const chartRef = useRef(null);
             const chartInstance = useRef(null);
             const [rewrittenText, setRewrittenText] = useState(null);
@@ -128,8 +152,8 @@
                             },
                             plugins: {
                                 legend: { position: 'bottom', labels: { color: 'white' } }
-                            }
-                        }
+                            },
+                        },
                     });
                 }
             }, [result, avgData]);
@@ -145,7 +169,6 @@
                     formData.append('original_text', originalText);
                     formData.append('company_name', companyName || '');
                     formData.append('category', category);
-                    // bad_pointsを配列として送信
                     if (result.bad_points) {
                         result.bad_points.forEach(point => {
                             formData.append('bad_points', point);
@@ -181,14 +204,18 @@
                 return <div className="text-center p-8 bg-gray-800 rounded-2xl shadow-xl"><p className="text-gray-400">結果はここに表示されます</p></div>;
             }
 
+            const totalScore = result.total_score || 0;
+            const verdictColor = result.result === '合格' ? 'bg-green-600' : 'bg-red-600';
+            const verdictText = result.result === '合格' ? '合格' : '不合格';
+
             return (
                 <>
                     <div className="bg-gray-800 p-4 sm:p-6 rounded-2xl shadow-xl space-y-6">
                         <div className="text-center border-b border-gray-700 pb-4">
-                            <div className={`text-2xl font-bold px-4 py-1 rounded-full inline-block mb-2 text-white ${result.result === '合格' ? 'bg-green-600' : 'bg-red-600'}`}>
-                                判定：{result.result || '判定不能'}
+                            <div className={`text-2xl font-bold px-4 py-1 rounded-full inline-block mb-2 text-white ${verdictColor}`}>
+                                判定：{verdictText}
                             </div>
-                            <div className="text-5xl font-black text-white">{result.total_score || 0} <span className="text-xl font-light text-gray-400">/ 100</span></div>
+                            <div className="text-5xl font-black text-white">{totalScore} <span className="text-xl font-light text-gray-400">/ 100</span></div>
                             <div className="flex gap-2 justify-center mt-4">
                                 <button onClick={handleShare} className="px-4 py-2 bg-black rounded-full font-bold text-sm text-white inline-flex items-center gap-2 hover:bg-gray-900">
                                     <span>X でシェア</span>
@@ -285,16 +312,35 @@
             const [avgData, setAvgData] = useState([16, 15, 17, 15, 16]);
             const [loading, setLoading] = useState(false);
             const [originalText, setOriginalText] = useState('');
+            const [user, setUser] = useState(null);
+            const [authLoading, setAuthLoading] = useState(true);
 
-            // 🚨 重要: 自分のRenderのURLかどうか確認してください
-            const API_URL = "/api/evaluate"; 
+            // API URL (相対パス)
+            const API_URL = "/api/evaluate";
+
+            // --- 認証状態の監視 ---
+            useEffect(() => {
+                const { data: authListener } = supabase.auth.onAuthStateChange(
+                    (event, session) => {
+                        setUser(session?.user ?? null);
+                        setAuthLoading(false);
+                    }
+                );
+
+                supabase.auth.getSession().then(({ data: { session } }) => {
+                    setUser(session?.user ?? null);
+                    setAuthLoading(false);
+                });
+
+                return () => { authListener?.unsubscribe(); };
+            }, []);
 
             const handleSubmit = async (e) => {
                 e.preventDefault();
                 if (!esText.trim()) return;
                 setLoading(true);
                 setResult(null);
-                setOriginalText(esText); // 元のテキストを保存
+                setOriginalText(esText);
 
                 const formData = new URLSearchParams();
                 formData.append('company_name', companyName);
@@ -320,7 +366,6 @@
             };
 
             const handleRewriteComplete = (rewrittenText) => {
-                // リライトされたテキストを入力欄に設定
                 setEsText(rewrittenText);
             };
 
@@ -331,20 +376,75 @@
                 window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`, '_blank');
             };
 
+            // --- 認証関連の関数 ---
+            const handleLogin = async () => {
+                setAuthLoading(true);
+                const { error } = await supabase.auth.signInWithOAuth({
+                    provider: 'google', 
+                    options: {
+                        redirectTo: window.location.href, 
+                    },
+                });
+                if (error) {
+                    console.error('Login error:', error);
+                    alert(`ログインエラー: ${error.message}`);
+                }
+                setAuthLoading(false);
+            };
+
+            const handleLogout = async () => {
+                const { error } = await supabase.auth.signOut();
+                if (error) console.error('Logout error:', error);
+                setUser(null);
+            };
+
+            // --- UIコンポーネント: 認証状態 ---
+            const AuthUI = () => {
+                if (authLoading) {
+                    return <div className="text-center text-gray-400 text-sm">認証中...</div>;
+                }
+                if (user) {
+                    return (
+                        <div className="flex items-center space-x-3 bg-gray-700 p-2 rounded-xl">
+                            <p className="text-sm text-white">
+                                {user.email ? user.email.substring(0, user.email.indexOf('@')) : 'ログイン済み'}
+                            </p>
+                            <button onClick={handleLogout} className="px-3 py-1 bg-red-600 text-white rounded-lg text-xs hover:bg-red-700 transition">
+                                ログアウト
+                            </button>
+                        </div>
+                    );
+                }
+                return (
+                    <button onClick={handleLogin} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 transition shadow-lg">
+                        Googleでログイン (履歴保存)
+                    </button>
+                );
+            };
+
             return (
                 <div className="min-h-screen p-4 md:p-8">
                     <div className="max-w-4xl mx-auto">
-                        <header className="text-center mb-8">
-                            <h1 className="text-4xl font-extrabold text-white">AI 鬼面接官</h1>
-                            <p className="text-red-400 mt-2">就活ES偏差値 厳格採点ツール</p>
+                        <header className="flex justify-between items-center mb-8 pt-4">
+                            <div>
+                                <h1 className="text-2xl font-extrabold text-white">AI 鬼面接官</h1>
+                                <p className="text-red-400 text-sm">ES偏差値 厳格採点ツール</p>
+                            </div>
+                            <AuthUI />
                         </header>
                         <main className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                             <InputForm 
-                                onSubmit={handleSubmit} loading={loading} 
-                                esText={esText} setEsText={setEsText} 
-                                companyName={companyName} setCompanyName={setCompanyName}
-                                category={category} setCategory={setCategory}
-                                targetLength={targetLength} setTargetLength={setTargetLength}
+                                onSubmit={handleSubmit} 
+                                loading={loading} 
+                                esText={esText} 
+                                setEsText={setEsText} 
+                                companyName={companyName} 
+                                setCompanyName={setCompanyName}
+                                category={category} 
+                                setCategory={setCategory}
+                                targetLength={targetLength} 
+                                setTargetLength={setTargetLength}
+                                user={user}
                             />
                             <ResultDisplay 
                                 result={result} 
@@ -354,10 +454,11 @@
                                 companyName={companyName}
                                 category={category}
                                 onRewriteComplete={handleRewriteComplete}
+                                user={user}
                             />
                         </main>
                         <footer className="text-center text-gray-500 text-xs mt-12">
-                            <p>© 2025 ES Evaluator App</p>
+                            <p>© 2025 ES Evaluator App. | <span className="text-red-400">ログインで履歴保存/無制限リライト</span></p>
                         </footer>
                     </div>
                 </div>
