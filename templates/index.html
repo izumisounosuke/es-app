@@ -348,6 +348,11 @@
                 formData.append('target_length', targetLength);
                 formData.append('es_text', esText);
 
+                // ログインしている場合（userが存在する場合）、user.idをフォームデータに追加
+                if (user) {
+                    formData.append('user_id', user.id);
+                }
+
                 try {
                     const res = await fetch(API_URL, {
                         method: 'POST',
