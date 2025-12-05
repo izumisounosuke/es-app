@@ -106,9 +106,6 @@
             const [rewriteLoading, setRewriteLoading] = useState(false);
             const [showRewriteModal, setShowRewriteModal] = useState(false);
 
-            // 🚨 ユーザーが取得したStripeのテスト用決済リンク
-            const STRIPE_CHECKOUT_URL = "https://buy.stripe.com/test_00wdR911Sfkq7943bze3e00";
-
             useEffect(() => {
                 if (result && result.scores && window.Chart) {
                     if (chartInstance.current) {
@@ -161,14 +158,45 @@
             const handleRewrite = async () => {
                 if (!originalText || !result) return;
                 
-                // 未ログインユーザーへの対応
+                // ログインチェック
                 if (!user) {
-                    alert('リライト機能を利用するにはログインが必要です。');
+                    alert('🚨 リライト機能は、プロプラン限定です。\nログインしてアカウントを有効にしてください。');
                     return;
                 }
                 
-                // ログイン済みユーザーをStripe決済ページへリダイレクト
-                window.location.href = STRIPE_CHECKOUT_URL;
+                setRewriteLoading(true);
+                setRewrittenText(null);
+                
+                try {
+                    const formData = new URLSearchParams();
+                    formData.append('original_text', originalText);
+                    formData.append('company_name', companyName || '');
+                    formData.append('category', category);
+                    formData.append('user_id', user.id);
+                    if (result.bad_points) {
+                        result.bad_points.forEach(point => {
+                            formData.append('bad_points', point);
+                        });
+                    }
+                    formData.append('advice', result.advice || '');
+                    
+                    const res = await fetch('/api/rewrite', {
+                        method: 'POST',
+                        body: formData,
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+                    });
+                    
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || 'リライトエラー');
+                    
+                    // 結果を alert で表示（一時的な措置）
+                    alert(data.rewritten_text);
+                    setRewrittenText(data.rewritten_text);
+                } catch (err) {
+                    alert(`リライトエラー: ${err.message}`);
+                } finally {
+                    setRewriteLoading(false);
+                }
             };
 
             if (result && result.error) {

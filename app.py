@@ -180,6 +180,11 @@ def api_evaluate():
 def api_rewrite():
     """ESリライト用のAPIエンドポイント"""
     try:
+        # user_id の検証（ログインユーザー限定）
+        user_id = request.form.get('user_id', None)
+        if not user_id:
+            return jsonify({"error": "リライト機能はログインユーザー限定です。"}), 403
+        
         # フォームデータの取得
         original_text = request.form.get('original_text', '').strip()
         company_name = request.form.get('company_name', '').strip()
@@ -195,7 +200,7 @@ def api_rewrite():
         bad_points_text = "\n".join([f"- {point}" for point in bad_points]) if bad_points else "なし"
         
         prompt = f"""
-        あなたは「厳格な採用責任者」です。以下のESを、指摘された改善点をすべて解消し、合格ラインに達するESに書き直してください。
+        ユーザーが送信した元のES、悪い点、アドバイスを基に、全ての指摘を解消した**論理的で具体的な新しいES本文を純粋なテキスト形式で生成せよ**。
 
         【元のES本文】
         {original_text}
@@ -204,23 +209,16 @@ def api_rewrite():
         - 志望企業: {company_name if company_name else "指定なし"}
         - カテゴリ: {category}
 
-        【改善すべき点】
+        【改善すべき点（悪い点）】
         {bad_points_text}
 
         【アドバイス】
         {advice}
 
-        【リライト指示】
-        1. 上記の改善点をすべて解消してください。
-        2. 論理的で具体的、かつ説得力のある内容に書き直してください。
-        3. 5W1Hを明確にし、固有名詞や数字を含めてください。
-        4. 企業名が指定されている場合は、その企業の理念や社風に合致する内容にしてください。
-        5. 文字数は元のESと同程度を目安にしてください。
-
         【出力形式】
-        - JSONやMarkdown記法は不要です。
-        - 純粋なテキスト形式で、新しいES本文のみを出力してください。
-        - 改行は適切に入れてください。
+        - JSONやMarkdown記法は一切使用しないこと。
+        - 純粋なテキスト形式で、新しいES本文のみを出力すること。
+        - 改行は適切に入れること。
         """
 
         # Gemini API呼び出し
